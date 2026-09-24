@@ -21,6 +21,7 @@ canvas {
   border: 2px solid #2a3150;
   background: #0b1023;
   touch-action: none;
+  cursor: crosshair;
   user-select: none;
 }
 #overlay {
@@ -38,8 +39,6 @@ canvas {
 #overlay.hidden { display: none; }
 #overlay h2 { margin: 4px 0 6px; font-size: 32px; }
 #overlay p { margin: 4px 0; opacity: 0.9; }
-.controls { text-align: left; line-height: 1.8; margin: 10px 0 4px; padding-left: 20px; font-size: 15px; }
-.controls b { color: #ffd54f; }
 button {
   margin-top: 14px;
   padding: 10px 28px;
@@ -53,7 +52,53 @@ button {
 }
 button:hover { background: #ffa726; }
 .hint { font-size: 13px; opacity: 0.6; margin-top: 10px; }
+
+
+/* ---------- 按鍵樣式(開始畫面的教學 + 遊戲下方的按鍵列共用) ---------- */
+kbd {
+  display: inline-block;
+  min-width: 30px;
+  padding: 3px 8px;
+  margin: 0 2px;
+  border: 1px solid #5a648c;
+  border-bottom-width: 3px;
+  border-radius: 6px;
+  background: #1c2340;
+  color: #fff;
+  font: bold 14px/1.3 ui-monospace, Consolas, monospace;
+  text-align: center;
+  transition: transform 0.05s, background 0.1s;
+}
+kbd.wide { min-width: 56px; }
+
+.keyguide { display: grid; gap: 7px; margin: 12px 0 6px; text-align: left; font-size: 15px; }
+.kg-row { display: grid; grid-template-columns: 130px 1fr; align-items: center; gap: 10px; }
+.kg-row .keys { text-align: right; }
+#overlay p.small { font-size: 13px; opacity: 0.75; max-width: 520px; }
+
+#keybar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px 16px;
+  width: 100%;
+  max-width: 900px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #121834;
+  border: 1px solid #2a3150;
+}
+.kb-item { display: flex; align-items: center; gap: 4px; font-size: 14px; }
+.kb-item span { margin-left: 4px; opacity: 0.85; }
+.kb-item .cd { font-style: normal; font-size: 12px; color: #90a4ae; min-width: 32px; }
+.kb-item.pressed kbd { background: #ffb84d; color: #2b1600; border-color: #ffb84d; transform: translateY(2px); }
+.kb-item.cooling kbd { opacity: 0.45; }
+.kb-item.cooling span { opacity: 0.5; }
+
 @media (max-width: 600px) {
-  .controls { font-size: 12px; line-height: 1.5; }
-  #overlay h2 { font-size: 24px; }
+  #overlay h2 { font-size: 22px; }
+  .keyguide { font-size: 12px; gap: 4px; }
+  .kg-row { grid-template-columns: 90px 1fr; }
+  kbd { font-size: 12px; min-width: 24px; padding: 2px 5px; }
 }

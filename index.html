@@ -7,10 +7,18 @@
   <link rel="stylesheet" href="src/style.css" />
 </head>
 <body>
-  <h1>🏹 后羿射日 <span class="ver">v2</span></h1>
+  <h1>🏹 后羿射日 <span class="ver">v3</span></h1>
   <div id="gameWrap">
     <canvas id="game" width="900" height="600"></canvas>
     <div id="overlay"></div>
+  </div>
+  <div id="keybar" aria-label="操作按鍵">
+    <div class="kb-item" data-act="move"><kbd>A</kbd><kbd>D</kbd><span>移動</span></div>
+    <div class="kb-item" data-act="jump"><kbd>W</kbd><span>跳</span></div>
+    <div class="kb-item" data-act="drop"><kbd>S</kbd><span>往下跳</span></div>
+    <div class="kb-item" data-act="shoot"><kbd class="wide">🖱 左鍵</kbd><span>射箭</span></div>
+    <div class="kb-item" data-act="slash"><kbd>Q</kbd><span>兔劍</span><em class="cd"></em></div>
+    <div class="kb-item" data-act="dash"><kbd class="wide">Shift</kbd><span>衝刺</span><em class="cd"></em></div>
   </div>
   <p class="hint">九個太陽,只留最後一個——太陽下山之後,才輪到月亮出場。</p>
   <script src="src/logic.js"></script>

@@ -102,6 +102,11 @@ test('SPEC §8:勝負判定', () => {
   assert.equal(L.checkOutcome(5, 0), 'lose');
 });
 
+test('v3 SPEC §8:最後兩顆同時被射下來(剩 0 顆)= 隱藏結局', () => {
+  assert.equal(L.checkOutcome(0, 50), 'allgone');
+  assert.equal(L.checkOutcome(0, 0), 'lose'); // 同時被打死還是算輸
+});
+
 test('SPEC §4:太陽漂浮幅度 ±7px、2.5 秒一循環', () => {
   for (let t = 0; t < 5; t += 0.05) assert.ok(Math.abs(L.sunFloatOffset(t, 1.3)) <= 7 + 1e-9);
   assert.ok(Math.abs(L.sunFloatOffset(0.3, 0.7) - L.sunFloatOffset(2.8, 0.7)) < 1e-9);
@@ -153,4 +158,53 @@ test('彈幕跟倉鼠矩形的碰撞', () => {
   assert.ok(L.circleRectHit(50, 50, 10, 40, 40, 60, 60));
   assert.ok(L.circleRectHit(35, 50, 6, 40, 40, 60, 60));
   assert.ok(!L.circleRectHit(20, 50, 6, 40, 40, 60, 60));
+});
+
+// ---------------- v3 ----------------
+
+test('v3 SPEC §7:箭朝游標方向直線飛出', () => {
+  const [v] = L.arrowVolley(100, 100, 100, 0, 1); // 游標在正上方
+  assert.ok(Math.abs(v.vx) < 1e-9 && v.vy < 0);
+  assert.ok(Math.abs(Math.hypot(v.vx, v.vy) - C.ARROW_SPEED) < 1e-9);
+});
+
+test('v3 SPEC §6:雙箭 = 兩支箭左右各偏一點', () => {
+  const vs = L.arrowVolley(0, 0, 100, 0, 2); // 游標在正右方
+  assert.equal(vs.length, 2);
+  assert.ok(vs[0].vy < 0 && vs[1].vy > 0);
+  assert.ok(Math.abs(vs[0].vy + vs[1].vy) < 1e-9);
+});
+
+test('v3:滑鼠座標會依畫布縮放換算', () => {
+  const rect = { left: 10, top: 20, width: 450, height: 300 }; // 畫布被縮成一半顯示
+  assert.deepEqual(L.toCanvasPoint(10 + 225, 20 + 150, rect, 900, 600), { x: 450, y: 300 });
+});
+
+test('v3:直線飛的箭打中路上碰到的太陽,死掉的太陽不算', () => {
+  const suns = [{ x: 0, y: 0, alive: false }, { x: 0, y: 0, alive: true, id: 2 }, { x: 500, y: 0, alive: true }];
+  assert.equal(L.arrowHitSun(10, 10, suns).id, 2);
+  assert.equal(L.arrowHitSun(200, 200, suns), null);
+});
+
+test('v3 SPEC §5:追蹤火球轉彎變慢,而且只追前 1.8 秒', () => {
+  const dt = 1 / 60;
+  // 往下飛、玩家在正右方:一幀最多只能轉 HOMING_TURN_RATE * dt
+  const r = L.homingSteer(0, 130, 0, 0, 100, 0, dt, 0.5);
+  const turned = Math.abs(Math.atan2(r.vy, r.vx) - Math.PI / 2);
+  assert.ok(turned <= C.HOMING_TURN_RATE * dt + 1e-9);
+  assert.ok(C.HOMING_TURN_RATE < 1.8); // 比 v2 慢
+  // 超過追蹤時間就完全不轉
+  assert.deepEqual(L.homingSteer(0, 130, 0, 0, 100, 0, dt, C.HOMING_TRACK_TIME + 0.1), { vx: 0, vy: 130 });
+});
+
+test('v3 SPEC §5:特殊技能有全域冷卻', () => {
+  assert.ok(!L.globalSkillReady(C.GLOBAL_SKILL_CD - 0.1));
+  assert.ok(L.globalSkillReady(C.GLOBAL_SKILL_CD));
+});
+
+test('v3 SPEC §5:彈幕變少(普通攻擊間隔拉長、扇形機率降低)', () => {
+  assert.ok(C.SUN_FIRE_INTERVAL[0] >= 3);
+  assert.ok(C.FAN_CHANCE < 0.22);
+  assert.ok(C.SPECIAL_INTERVAL[0] >= 12);
+  assert.ok(C.LAST_STAND_SHOTS < 16);
 });

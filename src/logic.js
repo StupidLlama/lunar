@@ -37,6 +37,7 @@
     ATTACK_INTERVAL: 0.4,
     ARROW_DAMAGE: 6,
     ARROW_SPEED: 560,
+    DOUBLE_ARROW_SPREAD: 0.1, // 雙箭:兩支箭各往外偏約 6°
 
     // 兔劍(SPEC §6)
     SLASH_COOLDOWN: 5,
@@ -69,6 +70,17 @@
     SUN_FLOAT_AMP: 7,
     SUN_FLOAT_PERIOD: 2.5,
     LAST_STAND_RATIO: 0.2,
+    LAST_STAND_SHOTS: 10,
+
+    // 太陽攻擊節奏(v3 調降:彈幕變少、技能之間有全域冷卻)
+    SUN_FIRE_INTERVAL: [3.0, 4.5],   // 每顆太陽普通攻擊間隔(秒)
+    FAN_CHANCE: 0.15,                // 普通攻擊變成扇形的機率
+    SPECIAL_INTERVAL: [12, 18],      // 每顆太陽自己的特殊技能冷卻
+    GLOBAL_SKILL_CD: 3.5,            // 全場任兩個特殊技能(追蹤/灼熱/雷射)之間至少隔這麼久
+    LASER_INTERVAL: [14, 18],
+    HOMING_SPEED: 130,
+    HOMING_TURN_RATE: 0.7,           // 每秒最多轉幾弧度(舊版 1.8,幾乎躲不掉)
+    HOMING_TRACK_TIME: 1.8,          // 只追前 1.8 秒,之後直線飛
 
     // 光照(SPEC §2):只要還有太陽,最暗只到深黃昏
     MAX_DARKNESS: 0.55,
@@ -136,10 +148,14 @@
     return { kept, removed };
   }
 
-  /** 勝負判定:剩 1 顆太陽 = 贏;血量歸零 = 輸。 */
+  /**
+   * 勝負判定:剩 1 顆太陽 = 贏;血量歸零 = 輸;
+   * 同一瞬間把最後兩顆一起射下來(0 顆)= 隱藏結局 'allgone'。
+   */
   function checkOutcome(aliveSuns, playerHp) {
     if (playerHp <= 0) return 'lose';
-    if (aliveSuns <= 1) return 'win';
+    if (aliveSuns <= 0) return 'allgone';
+    if (aliveSuns === 1) return 'win';
     return 'playing';
   }
 
@@ -202,6 +218,40 @@
     return { vx: Math.cos(ang) * speed, vy: Math.sin(ang) * speed };
   }
 
+  /** 追蹤火球:只在發射後 HOMING_TRACK_TIME 秒內追蹤,而且每秒最多轉 HOMING_TURN_RATE 弧度。 */
+  function homingSteer(vx, vy, x, y, tx, ty, dt, age) {
+    if (age >= CONFIG.HOMING_TRACK_TIME) return { vx, vy };
+    return steerTowards(vx, vy, x, y, tx, ty, CONFIG.HOMING_TURN_RATE * dt);
+  }
+
+  /** 全場特殊技能冷卻:距離上一次特殊技能夠久了才准發。 */
+  function globalSkillReady(timeSinceLastSpecial) {
+    return timeSinceLastSpecial >= CONFIG.GLOBAL_SKILL_CD;
+  }
+
+  /** 朝滑鼠位置射箭。count = 2(雙箭)時兩支箭左右各偏一點。回傳每支箭的速度。 */
+  function arrowVolley(sx, sy, tx, ty, count) {
+    const base = Math.atan2(ty - sy, tx - sx);
+    const angles = count >= 2 ? [base - CONFIG.DOUBLE_ARROW_SPREAD, base + CONFIG.DOUBLE_ARROW_SPREAD] : [base];
+    return angles.map((a) => ({ vx: Math.cos(a) * CONFIG.ARROW_SPEED, vy: Math.sin(a) * CONFIG.ARROW_SPEED }));
+  }
+
+  /** 把滑鼠在網頁上的座標換算成遊戲畫布座標(畫布會跟著視窗縮放)。 */
+  function toCanvasPoint(clientX, clientY, rect, w, h) {
+    return {
+      x: ((clientX - rect.left) / rect.width) * w,
+      y: ((clientY - rect.top) / rect.height) * h,
+    };
+  }
+
+  /** 箭有沒有打到某顆太陽(箭現在是直線飛,會打中路上碰到的第一顆)。 */
+  function arrowHitSun(ax, ay, suns) {
+    for (const s of suns) {
+      if (s.alive && Math.hypot(ax - s.x, ay - s.y) < CONFIG.SUN_HIT_RADIUS) return s;
+    }
+    return null;
+  }
+
   /** 圓形(彈幕)跟矩形(倉鼠)的碰撞。 */
   function circleRectHit(cx, cy, r, left, top, right, bottom) {
     const nx = Math.max(left, Math.min(cx, right));
@@ -226,6 +276,11 @@
     pickBuff,
     nearestSuns,
     steerTowards,
+    homingSteer,
+    globalSkillReady,
+    arrowVolley,
+    toCanvasPoint,
+    arrowHitSun,
     circleRectHit,
   };
 

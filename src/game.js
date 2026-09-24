@@ -39,11 +39,14 @@
   }
 
   // ---------------- 狀態 ----------------
-  let state = 'loading'; // loading | start | playing | victory | lose
+  let state = 'loading'; // loading | start | playing | victory | badend | lose
   let time = 0;
   let shake = 0;
   let player, suns, enemyShots, arrows, cakes, heatZones, lasers, particles, texts, slashFx;
-  let cakeTimer, laserTimer, victory;
+  let cakeTimer, laserTimer, victory, badEnd;
+  let lastSpecialAt = -99; // 全場上一次特殊技能的時間(全域冷卻用)
+  let laserPending = false; // 雷射排隊中:其他特殊技能先讓路,不然雷射會一直搶不到全域冷卻
+  const mouse = { x: W / 2, y: 200, down: false };
   const STARS = Array.from({ length: 80 }, () => ({
     x: Math.random() * W,
     y: Math.random() * 400,
@@ -69,8 +72,8 @@
       return {
         x: p.x, baseY: p.y, y: p.y, phase: Math.random() * Math.PI * 2,
         hp: C.SUN_HP, alive: true, specials,
-        fireTimer: rand(1, 2.5), fireInterval: rand(1.8, 2.8),
-        specialTimer: rand(5, 10), lastStandDone: false,
+        fireTimer: rand(1.5, 4), fireInterval: rand(C.SUN_FIRE_INTERVAL[0], C.SUN_FIRE_INTERVAL[1]),
+        specialTimer: rand(6, 14), lastStandDone: false,
         hitFlash: 0, laserGlow: 0, deathT: -1,
       };
     });
@@ -83,8 +86,11 @@
     texts = [];
     slashFx = null;
     cakeTimer = rand(4, 7);
-    laserTimer = rand(9, 13);
+    laserTimer = rand(C.LASER_INTERVAL[0], C.LASER_INTERVAL[1]);
+    lastSpecialAt = -99;
+    laserPending = false;
     victory = null;
+    badEnd = null;
     time = 0;
     shake = 0;
   }
@@ -93,7 +99,7 @@
 
   // ---------------- 輸入 ----------------
   const keys = {};
-  const GAME_KEYS = ['KeyA', 'KeyD', 'KeyW', 'KeyS', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Space', 'ShiftLeft', 'ShiftRight'];
+  const GAME_KEYS = ['KeyA', 'KeyD', 'KeyW', 'KeyS', 'KeyQ', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Space', 'ShiftLeft', 'ShiftRight'];
   window.addEventListener('keydown', (e) => {
     if (GAME_KEYS.includes(e.code)) e.preventDefault();
     keys[e.code] = true;
@@ -101,18 +107,35 @@
     if (e.code === 'KeyW' || e.code === 'ArrowUp') tryJump();
     if (e.code === 'KeyS' || e.code === 'ArrowDown') tryDrop();
     if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') tryDash();
+    if (e.code === 'KeyQ') trySlash();
   });
   window.addEventListener('keyup', (e) => {
     keys[e.code] = false;
   });
   window.addEventListener('blur', () => {
     for (const k in keys) keys[k] = false;
+    mouse.down = false;
   });
+  // 滑鼠:按住左鍵朝游標方向連續射箭
+  function trackMouse(e) {
+    const pt = L.toCanvasPoint(e.clientX, e.clientY, canvas.getBoundingClientRect(), W, H);
+    mouse.x = pt.x;
+    mouse.y = pt.y;
+  }
+  canvas.addEventListener('pointermove', trackMouse);
   canvas.addEventListener('pointerdown', (e) => {
-    if (state !== 'playing') return;
+    trackMouse(e);
+    if (state !== 'playing' || e.button > 0) return;
     e.preventDefault();
-    trySlash();
+    mouse.down = true;
   });
+  window.addEventListener('pointerup', () => {
+    mouse.down = false;
+  });
+  canvas.addEventListener('pointercancel', () => {
+    mouse.down = false;
+  });
+  canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
   // ---------------- 玩家動作 ----------------
   function roar() {
@@ -145,7 +168,7 @@
   }
 
   function trySlash() {
-    if (player.slashCd > 0) return; // 冷卻中點擊沒反應
+    if (player.slashCd > 0) return; // 冷卻中按 Q 沒反應
     player.slashCd = C.SLASH_COOLDOWN;
     roar();
     player.bubbleTimer = C.BUBBLE_TIME;
@@ -158,14 +181,15 @@
     for (const s of removed) puff(s.x, s.y, '#b3e5fc', 8);
   }
 
+  function bowPosition() {
+    return { x: player.x + Math.cos(player.aim) * 30, y: player.y - 32 + Math.sin(player.aim) * 30 };
+  }
+
   function fireArrows() {
+    const bow = bowPosition();
     const n = player.buff === 'double' ? 2 : 1;
-    const targets = L.nearestSuns(suns, player.x, player.y - 40, n);
-    for (const t of targets) {
-      const sx = player.x + player.facing * 8;
-      const sy = player.y - 36;
-      const a = Math.atan2(t.y - sy, t.x - sx);
-      arrows.push({ x: sx, y: sy, vx: Math.cos(a) * C.ARROW_SPEED, vy: Math.sin(a) * C.ARROW_SPEED, target: t });
+    for (const v of L.arrowVolley(bow.x, bow.y, mouse.x, mouse.y, n)) {
+      arrows.push({ x: bow.x, y: bow.y, vx: v.vx, vy: v.vy });
     }
   }
 
@@ -209,11 +233,11 @@
   // ---------------- 太陽 ----------------
   function shoot(s, vx, vy, kind) {
     const homing = kind === 'homing';
-    enemyShots.push({ x: s.x, y: s.y + 28, vx, vy, r: homing ? 15 : 10, dmg: homing ? 10 : 8, kind, life: homing ? 6 : 99 });
+    enemyShots.push({ x: s.x, y: s.y + 28, vx, vy, r: homing ? 14 : 10, dmg: homing ? 10 : 8, kind, life: homing ? 6 : 99, age: 0 });
   }
 
   function basicAttack(s) {
-    if (Math.random() < 0.22) {
+    if (Math.random() < C.FAN_CHANCE) {
       // 扇形彈幕
       const sp = rand(170, 220);
       for (const a of [-0.35, 0, 0.35]) shoot(s, Math.sin(a) * sp, Math.cos(a) * sp, 'fire');
@@ -226,7 +250,7 @@
   function specialAttack(s) {
     const skill = s.specials[Math.floor(Math.random() * s.specials.length)];
     if (skill === 'homing') {
-      shoot(s, 0, 150, 'homing');
+      shoot(s, 0, C.HOMING_SPEED, 'homing');
     } else {
       // 灼熱警戒:在倉鼠腳下的平台/地面畫警告圈,1 秒後爆炸
       const y = L.surfaceBelow(player.x, player.y, C.PLATFORMS, C.GROUND_Y);
@@ -238,20 +262,21 @@
     s.lastStandDone = true;
     s.hitFlash = 1;
     addText(s.x, s.y + 60, '迴光返照!', '#ff5252');
-    for (let i = 0; i < 16; i++) {
-      const a = (i / 16) * Math.PI * 2;
+    for (let i = 0; i < C.LAST_STAND_SHOTS; i++) {
+      const a = (i / C.LAST_STAND_SHOTS) * Math.PI * 2;
       shoot(s, Math.cos(a) * 170, Math.sin(a) * 170, 'fire');
     }
   }
 
   function startLaser() {
     const alive = aliveSuns();
-    if (alive.length < 3) return;
+    if (alive.length < 3) return false;
     const k = Math.min(alive.length, Math.random() < 0.5 ? 2 : 3);
     const chosen = alive.sort(() => Math.random() - 0.5).slice(0, k);
     const y = Math.max(200, Math.min(C.GROUND_Y - 22, player.y - 30));
     lasers.push({ y, t: 0, warn: 1.1, active: 0.5, suns: chosen, hit: false });
     addText(W / 2, y - 24, '合體雷射!', '#ff1744');
+    return true;
   }
 
   function damageSun(s, dmg) {
@@ -307,10 +332,10 @@
       if (p.buffTimer <= 0) p.buff = null;
     }
 
-    const target = L.nearestSuns(suns, p.x, p.y - 40, 1)[0];
-    if (target) p.aim = Math.atan2(target.y - (p.y - 36), target.x - (p.x + p.facing * 8));
+    p.aim = Math.atan2(mouse.y - (p.y - 32), mouse.x - p.x);
+    if (controllable && !dir && p.dashTimer <= 0) p.facing = mouse.x >= p.x ? 1 : -1; // 沒在走路時面向游標
 
-    if (controllable && keys.Space && p.attackCd <= 0 && target) {
+    if (controllable && mouse.down && p.attackCd <= 0) {
       fireArrows();
       p.attackCd = L.attackInterval(C.ATTACK_INTERVAL, p.buff);
     }
@@ -329,14 +354,22 @@
       }
       s.specialTimer -= dt;
       if (s.specialTimer <= 0) {
-        specialAttack(s);
-        s.specialTimer = rand(7, 12);
+        // 全域冷卻:全場上一個特殊技能還沒過 GLOBAL_SKILL_CD 秒,就晚一點再試
+        if (!laserPending && L.globalSkillReady(time - lastSpecialAt)) {
+          specialAttack(s);
+          lastSpecialAt = time;
+          s.specialTimer = rand(C.SPECIAL_INTERVAL[0], C.SPECIAL_INTERVAL[1]);
+        } else {
+          s.specialTimer = rand(0.8, 2);
+        }
       }
     }
     laserTimer -= dt;
-    if (laserTimer <= 0) {
-      startLaser();
-      laserTimer = rand(10, 14);
+    if (laserTimer <= 0) laserPending = true;
+    if (laserPending && L.globalSkillReady(time - lastSpecialAt)) {
+      if (startLaser()) lastSpecialAt = time; // 存活太陽不到 3 顆就不發,直接重新計時
+      laserPending = false;
+      laserTimer = rand(C.LASER_INTERVAL[0], C.LASER_INTERVAL[1]);
     }
   }
 
@@ -348,8 +381,10 @@
     const [l, t, r, b] = playerRect();
     for (let i = enemyShots.length - 1; i >= 0; i--) {
       const s = enemyShots[i];
+      s.age += dt;
       if (s.kind === 'homing') {
-        const v = L.steerTowards(s.vx, s.vy, s.x, s.y, player.x, player.y - 30, 1.8 * dt);
+        // 只追前 1.8 秒、轉彎很慢,之後就直線飛,看準了可以躲開
+        const v = L.homingSteer(s.vx, s.vy, s.x, s.y, player.x, player.y - 30, dt, s.age);
         s.vx = v.vx;
         s.vy = v.vy;
         s.life -= dt;
@@ -371,17 +406,12 @@
 
     for (let i = arrows.length - 1; i >= 0; i--) {
       const a = arrows[i];
-      if (a.target && a.target.alive) {
-        // 太陽會上下漂,箭每幀重新瞄準太陽「當下」的位置
-        const ang = Math.atan2(a.target.y - a.y, a.target.x - a.x);
-        a.vx = Math.cos(ang) * C.ARROW_SPEED;
-        a.vy = Math.sin(ang) * C.ARROW_SPEED;
-      }
       a.x += a.vx * dt;
       a.y += a.vy * dt;
-      if (a.target && a.target.alive && Math.hypot(a.x - a.target.x, a.y - a.target.y) < C.SUN_HIT_RADIUS) {
+      const hit = L.arrowHitSun(a.x, a.y, suns);
+      if (hit) {
         puff(a.x, a.y, '#fff59d', 5);
-        damageSun(a.target, C.ARROW_DAMAGE);
+        damageSun(hit, C.ARROW_DAMAGE);
         arrows.splice(i, 1);
         continue;
       }
@@ -489,6 +519,28 @@
     cakes = [];
   }
 
+  // 隱藏結局:最後兩顆太陽同一瞬間被射下來,九顆全滅
+  function startBadEnd() {
+    state = 'badend';
+    badEnd = { t: 0, overlayShown: false };
+    enemyShots = [];
+    arrows = [];
+    heatZones = [];
+    lasers = [];
+    cakes = [];
+    shake = 16;
+    player.roarTimer = 99; // 倉鼠嚇到,一直維持咆哮臉
+  }
+
+  function updateBadEnd(dt) {
+    badEnd.t += dt;
+    player.roarTimer = 99;
+    if (!badEnd.overlayShown && badEnd.t > 6) {
+      badEnd.overlayShown = true;
+      showOverlay('badend');
+    }
+  }
+
   function updateVictory(dt) {
     const v = victory;
     v.t += dt;
@@ -509,6 +561,7 @@
       updateCakes(dt);
       const outcome = L.checkOutcome(aliveSuns().length, player.hp);
       if (outcome === 'win') startVictory();
+      else if (outcome === 'allgone') startBadEnd();
       else if (outcome === 'lose') {
         state = 'lose';
         shake = 14;
@@ -517,7 +570,11 @@
     } else if (state === 'victory') {
       updatePlayer(dt, false);
       updateVictory(dt);
+    } else if (state === 'badend') {
+      updatePlayer(dt, false);
+      updateBadEnd(dt);
     }
+    updateKeybar();
     if (state !== 'loading' && state !== 'start') updateFx(dt);
   }
 
@@ -541,6 +598,10 @@
   }
 
   function currentDarkness() {
+    if (state === 'badend') {
+      // 沒有太陽也沒有月亮:兩秒內整個天地變成一片漆黑
+      return L.skyDarkness(0) + (0.96 - L.skyDarkness(0)) * ease(clamp01(badEnd.t / 2));
+    }
     if (state === 'victory') {
       // 勝利過場:獨立的夜晚轉場,不受「有太陽就不能全黑」限制
       const k = ease(clamp01(victory.t / 3));
@@ -561,6 +622,11 @@
       ctx.fillRect(0, 0, W, H);
     }
     if (state === 'victory') drawNight();
+    if (state === 'badend') {
+      // 再疊一層接近全黑的顏色,只隱約看得到平台輪廓
+      ctx.fillStyle = `rgba(2, 3, 8, ${0.8 * ease(clamp01(badEnd.t / 2))})`;
+      ctx.fillRect(0, 0, W, H);
+    }
   }
 
   function drawNight() {
@@ -724,8 +790,14 @@
 
   function drawShots() {
     for (const s of enemyShots) {
-      const d = s.r * 2.8;
-      drawImageCentered(IMG.fireball, s.x, s.y, d, d);
+      // 火球圖的頭在右邊、尾巴在左邊;轉到飛行方向,讓「頭」剛好在碰撞點上
+      const h = s.r * 3.4;
+      const w = (h * IMG.fireball.width) / IMG.fireball.height;
+      ctx.save();
+      ctx.translate(s.x, s.y);
+      ctx.rotate(Math.atan2(s.vy, s.vx));
+      ctx.drawImage(IMG.fireball, -w * 0.86, -h / 2, w, h);
+      ctx.restore();
       if (s.kind === 'homing') {
         ctx.strokeStyle = 'rgba(200, 0, 60, 0.8)';
         ctx.lineWidth = 2;
@@ -741,8 +813,9 @@
     const p = player;
     const roaring = p.roarTimer > 0;
     const img = roaring ? IMG.hamster_slash : IMG.hamster_idle;
-    const h = roaring ? 72 : 60;
-    const w = (h * img.width) / img.height;
+    // 咆哮臉畫在跟平常一模一樣大的框裡,出招時角色不會突然變大
+    const h = 60;
+    const w = (h * IMG.hamster_idle.width) / IMG.hamster_idle.height;
     ctx.save();
     if (p.hurtTimer > 0 && Math.floor(p.hurtTimer * 20) % 2 === 0) ctx.globalAlpha = 0.45;
     if (p.buff === 'shield') {
@@ -894,7 +967,7 @@
     const slashReady = p.slashCd <= 0;
     bar(16, 576, 180, 8, L.cooldownProgress(p.slashCd, C.SLASH_COOLDOWN), slashReady ? '#4fc3f7' : '#90a4ae');
     ctx.fillStyle = slashReady ? '#b3e5fc' : '#fff';
-    ctx.fillText(slashReady ? '兔劍 READY(點擊)' : '兔劍 冷卻 ' + p.slashCd.toFixed(1) + 's', 204, 580);
+    ctx.fillText(slashReady ? '兔劍 READY(Q)' : '兔劍 冷卻 ' + p.slashCd.toFixed(1) + 's', 204, 580);
 
     const dashReady = p.dashCd <= 0;
     bar(16, 588, 180, 6, L.cooldownProgress(p.dashCd, C.DASH_COOLDOWN), dashReady ? '#ce93d8' : '#90a4ae');
@@ -916,21 +989,47 @@
     }
   }
 
+  function drawBadEndText() {
+    const k = clamp01((badEnd.t - 2.2) / 1.2);
+    if (k <= 0 || badEnd.overlayShown) return; // 跳出結算框後就不畫,避免文字疊在一起
+    ctx.globalAlpha = k;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.lineWidth = 5;
+    ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+    const lines = [
+      ['bold 30px ', '后羿射下了九顆太陽……', 250, '#ffffff'],
+      ['17px ', '天地一片漆黑。沒有太陽,也就沒有月亮,更沒有中秋了。', 292, '#cfd8dc'],
+      ['bold 15px ', '— 隱藏結局 —', 332, '#ffab40'],
+    ];
+    for (const [font, text, y, color] of lines) {
+      ctx.font = font + UI_FONT;
+      ctx.fillStyle = color;
+      ctx.strokeText(text, W / 2, y);
+      ctx.fillText(text, W / 2, y);
+    }
+    ctx.globalAlpha = 1;
+  }
+
   function drawVictoryText() {
     const k = clamp01((victory.t - 4.2) / 1.2);
-    if (k <= 0) return;
+    if (k <= 0 || victory.overlayShown) return; // 跳出結算框後就不畫,避免文字疊在一起
     ctx.globalAlpha = k;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.lineWidth = 5;
     ctx.strokeStyle = 'rgba(0,0,0,0.6)';
     ctx.fillStyle = '#fff';
-    ctx.font = 'bold 30px ' + UI_FONT;
-    ctx.strokeText('留下了最後一顆太陽', W / 2, 270);
-    ctx.fillText('留下了最後一顆太陽', W / 2, 270);
-    ctx.font = '17px ' + UI_FONT;
-    ctx.strokeText('太陽下山了,嫦娥奔月的故事才正要開始——中秋快樂!', W / 2, 308);
-    ctx.fillText('太陽下山了,嫦娥奔月的故事才正要開始——中秋快樂!', W / 2, 308);
+    const lines = [
+      ['bold 30px ', '后羿射下了八顆太陽', 262],
+      ['17px ', '只留下最後一顆,讓白天剛剛好,夜晚也看得見月亮', 302],
+      ['17px ', '后羿和嫦娥的故事,就從這裡開始——中秋快樂!', 330],
+    ];
+    for (const [font, text, y] of lines) {
+      ctx.font = font + UI_FONT;
+      ctx.strokeText(text, W / 2, y);
+      ctx.fillText(text, W / 2, y);
+    }
     ctx.globalAlpha = 1;
   }
 
@@ -958,26 +1057,31 @@
     drawBubble();
     drawFx();
     if (state === 'victory') drawVictoryText();
+    else if (state === 'badend') drawBadEndText();
     else drawHud();
     ctx.restore();
   }
 
   // ---------------- 覆蓋畫面(開始 / 勝利 / 失敗) ----------------
   const CONTROLS_HTML = `
-    <ul class="controls">
-      <li><b>A / D</b> 左右移動　<b>W</b> 跳　<b>S</b> 從平台往下跳</li>
-      <li><b>空白鍵</b>(按住)射箭,自動瞄準最近的太陽</li>
-      <li><b>滑鼠點擊</b> 揮兔劍,清掉身邊的火球(冷卻 5 秒)</li>
-      <li><b>Shift</b> 月光衝刺,衝刺瞬間無敵(冷卻 4 秒)</li>
-      <li>撿掉下來的月餅拿 buff:連射 / 雙箭 / 無敵 / 回血</li>
-    </ul>`;
+    <div class="keyguide">
+      <div class="kg-row"><span class="keys"><kbd>A</kbd><kbd>D</kbd></span><span>左右移動</span></div>
+      <div class="kg-row"><span class="keys"><kbd>W</kbd></span><span>跳躍</span></div>
+      <div class="kg-row"><span class="keys"><kbd>S</kbd></span><span>從平台往下跳</span></div>
+      <div class="kg-row"><span class="keys"><kbd class="wide">🖱 左鍵</kbd></span><span>朝游標射箭(可按住連射)</span></div>
+      <div class="kg-row"><span class="keys"><kbd>Q</kbd></span><span>兔劍:清掉身邊的火球(冷卻 5 秒)</span></div>
+      <div class="kg-row"><span class="keys"><kbd class="wide">Shift</kbd></span><span>月光衝刺:瞬間無敵(冷卻 4 秒)</span></div>
+    </div>
+    <p class="small">撿月餅拿 buff:連射 / 雙箭 / 無敵 / 回血。遊戲中下方的按鍵列會亮起你正在按的鍵。</p>`;
 
   function showOverlay(kind) {
     overlay.classList.remove('hidden');
     if (kind === 'start') {
       overlay.innerHTML = `<h2>后羿射日</h2><p>九個太陽,打到只剩最後一個。</p>${CONTROLS_HTML}<button id="actionBtn">開始遊戲</button>`;
     } else if (kind === 'win') {
-      overlay.innerHTML = `<h2>通關!</h2><p>倉鼠后羿留下了最後一顆太陽,天終於黑了,月亮出來了。</p><button id="actionBtn">再玩一次</button>`;
+      overlay.innerHTML = `<h2>通關!</h2><p>后羿射下了八顆太陽,只留下一顆。</p><p>太陽下山、月亮升起,嫦娥奔月的故事要開始了。</p><button id="actionBtn">再玩一次</button>`;
+    } else if (kind === 'badend') {
+      overlay.innerHTML = `<h2>隱藏結局:沒有太陽的世界</h2><p>最後兩顆太陽被同時射了下來。</p><p>神話裡,后羿本來應該留下一顆的……</p><button id="actionBtn">再玩一次(這次留一顆)</button>`;
     } else {
       overlay.innerHTML = `<h2>倉鼠被曬乾了……</h2><p>還剩 ${aliveSuns().length} 顆太陽。再試一次?</p>${CONTROLS_HTML}<button id="actionBtn">再試一次</button>`;
     }
@@ -989,6 +1093,31 @@
       btn.blur();
     });
     btn.focus();
+  }
+
+  // ---------------- 畫面下方的按鍵列 ----------------
+  // 按下的鍵會亮起來;兔劍、衝刺冷卻中會變灰並顯示剩餘秒數
+  const keybarEls = {};
+  document.querySelectorAll('#keybar [data-act]').forEach((el) => {
+    keybarEls[el.dataset.act] = el;
+  });
+  function setKeyState(act, pressed, cooldown) {
+    const el = keybarEls[act];
+    if (!el) return;
+    el.classList.toggle('pressed', !!pressed);
+    el.classList.toggle('cooling', cooldown > 0);
+    const cd = el.querySelector('.cd');
+    if (cd) cd.textContent = cooldown > 0 ? cooldown.toFixed(1) + 's' : '';
+  }
+  function updateKeybar() {
+    const playing = state === 'playing';
+    const p = player || {};
+    setKeyState('move', playing && (keys.KeyA || keys.KeyD || keys.ArrowLeft || keys.ArrowRight), 0);
+    setKeyState('jump', playing && (keys.KeyW || keys.ArrowUp), 0);
+    setKeyState('drop', playing && (keys.KeyS || keys.ArrowDown), 0);
+    setKeyState('shoot', playing && mouse.down, 0);
+    setKeyState('slash', playing && keys.KeyQ, playing ? p.slashCd : 0);
+    setKeyState('dash', playing && (keys.ShiftLeft || keys.ShiftRight), playing ? p.dashCd : 0);
   }
 
   // ---------------- 主迴圈 ----------------

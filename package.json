@@ -1,6 +1,6 @@
 {
   "name": "lunar-houyi",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "private": true,
   "description": "后羿射日:中秋 2D 平台射擊小遊戲",
   "scripts": {
