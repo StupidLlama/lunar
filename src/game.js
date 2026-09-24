@@ -47,6 +47,8 @@
   let lastSpecialAt = -99; // 全場上一次特殊技能的時間(全域冷卻用)
   let laserPending = false; // 雷射排隊中:其他特殊技能先讓路,不然雷射會一直搶不到全域冷卻
   const mouse = { x: W / 2, y: 200, down: false };
+  const stick = { active: false, angle: -Math.PI / 2, pointerId: null }; // 手機版瞄準搖桿
+  let mobileMode = false;
   const STARS = Array.from({ length: 80 }, () => ({
     x: Math.random() * W,
     y: Math.random() * 400,
@@ -185,10 +187,19 @@
     return { x: player.x + Math.cos(player.aim) * 30, y: player.y - 32 + Math.sin(player.aim) * 30 };
   }
 
+  // 瞄準點:手機用搖桿方向,電腦用滑鼠游標
+  function aimTarget() {
+    if (stick.active) {
+      return { x: player.x + Math.cos(stick.angle) * 400, y: player.y - 32 + Math.sin(stick.angle) * 400 };
+    }
+    return { x: mouse.x, y: mouse.y };
+  }
+
   function fireArrows() {
     const bow = bowPosition();
     const n = player.buff === 'double' ? 2 : 1;
-    for (const v of L.arrowVolley(bow.x, bow.y, mouse.x, mouse.y, n)) {
+    const t = aimTarget();
+    for (const v of L.arrowVolley(bow.x, bow.y, t.x, t.y, n)) {
       arrows.push({ x: bow.x, y: bow.y, vx: v.vx, vy: v.vy });
     }
   }
@@ -332,10 +343,12 @@
       if (p.buffTimer <= 0) p.buff = null;
     }
 
-    p.aim = Math.atan2(mouse.y - (p.y - 32), mouse.x - p.x);
-    if (controllable && !dir && p.dashTimer <= 0) p.facing = mouse.x >= p.x ? 1 : -1; // 沒在走路時面向游標
+    const aim = aimTarget();
+    p.aim = Math.atan2(aim.y - (p.y - 32), aim.x - p.x);
+    if (controllable && !dir && p.dashTimer <= 0) p.facing = aim.x >= p.x ? 1 : -1; // 沒在走路時面向瞄準方向
 
-    if (controllable && mouse.down && p.attackCd <= 0) {
+    // 電腦:按住滑鼠左鍵射;手機:推著瞄準搖桿就自動射
+    if (controllable && (mouse.down || stick.active) && p.attackCd <= 0) {
       fireArrows();
       p.attackCd = L.attackInterval(C.ATTACK_INTERVAL, p.buff);
     }
@@ -951,6 +964,10 @@
   }
 
   function drawHud() {
+    if (mobileMode) {
+      drawHudMobile();
+      return;
+    }
     const p = player;
     // 左下角土地上:血條 + 兔劍冷卻條 + 衝刺冷卻條(不會擋到上面的太陽)
     ctx.fillStyle = 'rgba(30, 18, 10, 0.55)';
@@ -986,6 +1003,35 @@
       const names = { rapid: '連射中', double: '雙箭中', shield: '無敵中' };
       ctx.fillStyle = '#ffd54f';
       ctx.fillText(names[p.buff] + ' ' + p.buffTimer.toFixed(1) + 's', W - 16, 587);
+    }
+  }
+
+  // 手機版 HUD:左右兩個下角被觸控按鈕佔走了,整組資訊縮成一塊放在正下方中間
+  function drawHudMobile() {
+    const p = player;
+    const x0 = 262;
+    const w0 = 376;
+    ctx.fillStyle = 'rgba(30, 18, 10, 0.6)';
+    roundRect(x0, 556, w0, 42, 8);
+    ctx.fill();
+    ctx.font = '11px ' + UI_FONT;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    bar(x0 + 8, 561, 120, 10, p.hp / C.PLAYER_HP, p.hp / C.PLAYER_HP > 0.3 ? '#66bb6a' : '#ef5350');
+    ctx.fillStyle = '#fff';
+    ctx.fillText('HP ' + Math.ceil(p.hp), x0 + 134, 566);
+    bar(x0 + 8, 576, 120, 7, L.cooldownProgress(p.slashCd, C.SLASH_COOLDOWN), p.slashCd <= 0 ? '#4fc3f7' : '#90a4ae');
+    ctx.fillText(p.slashCd <= 0 ? '兔劍 OK' : '兔劍 ' + p.slashCd.toFixed(1) + 's', x0 + 134, 580);
+    bar(x0 + 8, 588, 120, 6, L.cooldownProgress(p.dashCd, C.DASH_COOLDOWN), p.dashCd <= 0 ? '#ce93d8' : '#90a4ae');
+    ctx.fillText(p.dashCd <= 0 ? '衝刺 OK' : '衝刺 ' + p.dashCd.toFixed(1) + 's', x0 + 134, 592);
+    ctx.textAlign = 'right';
+    ctx.font = 'bold 13px ' + UI_FONT;
+    ctx.fillStyle = '#ffe082';
+    ctx.fillText('太陽 ' + aliveSuns().length + '/' + C.SUN_COUNT, x0 + w0 - 10, 569);
+    if (p.buff) {
+      const names = { rapid: '連射', double: '雙箭', shield: '無敵' };
+      ctx.fillStyle = '#ffd54f';
+      ctx.fillText(names[p.buff] + ' ' + p.buffTimer.toFixed(1) + 's', x0 + w0 - 10, 587);
     }
   }
 
@@ -1063,6 +1109,16 @@
   }
 
   // ---------------- 覆蓋畫面(開始 / 勝利 / 失敗) ----------------
+  const TOUCH_CONTROLS_HTML = `
+    <div class="keyguide">
+      <div class="kg-row"><span class="keys"><kbd>◀</kbd><kbd>▶</kbd></span><span>左下:左右移動</span></div>
+      <div class="kg-row"><span class="keys"><kbd>▲</kbd><kbd>▼</kbd></span><span>左下:跳 / 從平台往下跳</span></div>
+      <div class="kg-row"><span class="keys"><kbd class="wide">搖桿</kbd></span><span>右下:推哪個方向就朝哪裡自動射箭</span></div>
+      <div class="kg-row"><span class="keys"><kbd>🐰</kbd><kbd>衝</kbd></span><span>兔劍(清火球)/ 月光衝刺</span></div>
+    </div>
+    <p class="small">建議手機橫放,按右上角 ⛶ 進入全螢幕。撿月餅拿 buff。</p>`;
+  const controlsHtml = () => (mobileMode ? TOUCH_CONTROLS_HTML : CONTROLS_HTML);
+
   const CONTROLS_HTML = `
     <div class="keyguide">
       <div class="kg-row"><span class="keys"><kbd>A</kbd><kbd>D</kbd></span><span>左右移動</span></div>
@@ -1074,20 +1130,23 @@
     </div>
     <p class="small">撿月餅拿 buff:連射 / 雙箭 / 無敵 / 回血。遊戲中下方的按鍵列會亮起你正在按的鍵。</p>`;
 
+  let overlayKind = null;
   function showOverlay(kind) {
+    overlayKind = kind;
     overlay.classList.remove('hidden');
     if (kind === 'start') {
-      overlay.innerHTML = `<h2>后羿射日</h2><p>九個太陽,打到只剩最後一個。</p>${CONTROLS_HTML}<button id="actionBtn">開始遊戲</button>`;
+      overlay.innerHTML = `<h2>后羿射日</h2><p>九個太陽,打到只剩最後一個。</p>${controlsHtml()}<button id="actionBtn">開始遊戲</button>`;
     } else if (kind === 'win') {
       overlay.innerHTML = `<h2>通關!</h2><p>后羿射下了八顆太陽,只留下一顆。</p><p>太陽下山、月亮升起,嫦娥奔月的故事要開始了。</p><button id="actionBtn">再玩一次</button>`;
     } else if (kind === 'badend') {
       overlay.innerHTML = `<h2>隱藏結局:沒有太陽的世界</h2><p>最後兩顆太陽被同時射了下來。</p><p>神話裡,后羿本來應該留下一顆的……</p><button id="actionBtn">再玩一次(這次留一顆)</button>`;
     } else {
-      overlay.innerHTML = `<h2>倉鼠被曬乾了……</h2><p>還剩 ${aliveSuns().length} 顆太陽。再試一次?</p>${CONTROLS_HTML}<button id="actionBtn">再試一次</button>`;
+      overlay.innerHTML = `<h2>倉鼠被曬乾了……</h2><p>還剩 ${aliveSuns().length} 顆太陽。再試一次?</p>${controlsHtml()}<button id="actionBtn">再試一次</button>`;
     }
     const btn = document.getElementById('actionBtn');
     btn.addEventListener('click', () => {
       overlay.classList.add('hidden');
+      overlayKind = null;
       initGame();
       state = 'playing';
       btn.blur();
@@ -1118,7 +1177,135 @@
     setKeyState('shoot', playing && mouse.down, 0);
     setKeyState('slash', playing && keys.KeyQ, playing ? p.slashCd : 0);
     setKeyState('dash', playing && (keys.ShiftLeft || keys.ShiftRight), playing ? p.dashCd : 0);
+    for (const [name, cd] of [['slash', playing ? p.slashCd : 0], ['dash', playing ? p.dashCd : 0]]) {
+      const btn = touchBtns[name];
+      if (!btn) continue;
+      btn.classList.toggle('cooling', cd > 0);
+      btn.querySelector('.cd').textContent = cd > 0 ? Math.ceil(cd) : '';
+    }
   }
+
+  // ---------------- 手機觸控介面 ----------------
+  // 左下:◀ ▶ 移動、▲ 跳、▼ 往下跳;右下:瞄準搖桿(推著就自動射)+ 兔劍 + 衝刺
+  const touchBtns = {};
+  function trySetCapture(el, id) {
+    try {
+      el.setPointerCapture(id);
+    } catch (err) {
+      /* 有些瀏覽器/測試環境不支援,沒關係 */
+    }
+  }
+  document.querySelectorAll('#touchControls [data-btn]').forEach((btn) => {
+    const name = btn.dataset.btn;
+    touchBtns[name] = btn;
+    btn.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      trySetCapture(btn, e.pointerId);
+      btn.classList.add('pressed');
+      if (name === 'left') keys.KeyA = true;
+      else if (name === 'right') keys.KeyD = true;
+      else if (state === 'playing') {
+        if (name === 'jump') tryJump();
+        else if (name === 'drop') tryDrop();
+        else if (name === 'slash') trySlash();
+        else if (name === 'dash') tryDash();
+      }
+    });
+    const release = () => {
+      btn.classList.remove('pressed');
+      if (name === 'left') keys.KeyA = false;
+      if (name === 'right') keys.KeyD = false;
+    };
+    btn.addEventListener('pointerup', release);
+    btn.addEventListener('pointercancel', release);
+    btn.addEventListener('lostpointercapture', release);
+    btn.addEventListener('contextmenu', (e) => e.preventDefault());
+  });
+
+  const stickEl = document.getElementById('aimStick');
+  const knobEl = document.getElementById('aimKnob');
+  function moveStick(e) {
+    const r = stickEl.getBoundingClientRect();
+    const radius = r.width / 2;
+    let dx = e.clientX - (r.left + radius);
+    let dy = e.clientY - (r.top + radius);
+    const v = L.stickVector(dx, dy, radius);
+    stick.active = v.active;
+    stick.angle = v.angle;
+    const d = Math.hypot(dx, dy);
+    if (d > radius) {
+      dx = (dx / d) * radius;
+      dy = (dy / d) * radius;
+    }
+    knobEl.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+    stickEl.classList.toggle('active', stick.active);
+  }
+  function endStick(e) {
+    if (e.pointerId !== stick.pointerId) return;
+    stick.pointerId = null;
+    stick.active = false;
+    knobEl.style.transform = 'translate(-50%, -50%)';
+    stickEl.classList.remove('active');
+  }
+  if (stickEl) {
+    stickEl.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      stick.pointerId = e.pointerId;
+      trySetCapture(stickEl, e.pointerId);
+      moveStick(e);
+    });
+    stickEl.addEventListener('pointermove', (e) => {
+      if (e.pointerId === stick.pointerId) moveStick(e);
+    });
+    stickEl.addEventListener('pointerup', endStick);
+    stickEl.addEventListener('pointercancel', endStick);
+  }
+
+  const fsBtn = document.getElementById('fsBtn');
+  if (fsBtn) {
+    if (!document.fullscreenEnabled) fsBtn.style.display = 'none'; // iPhone Safari 不支援網頁全螢幕
+    fsBtn.addEventListener('click', async () => {
+      try {
+        if (document.fullscreenElement) await document.exitFullscreen();
+        else {
+          await document.documentElement.requestFullscreen();
+          if (screen.orientation && screen.orientation.lock) await screen.orientation.lock('landscape').catch(() => {});
+        }
+      } catch (err) {
+        /* 使用者拒絕或不支援就算了 */
+      }
+    });
+  }
+
+  // 判斷要用電腦介面還是手機介面;手指一碰螢幕就切手機版,之後用鍵盤/滑鼠就切回來
+  const coarseQuery = window.matchMedia ? window.matchMedia('(pointer: coarse)') : null;
+  const fineQuery = window.matchMedia ? window.matchMedia('(pointer: fine)') : null;
+  function setMobileMode(on) {
+    if (on === mobileMode) return;
+    mobileMode = on;
+    document.body.classList.toggle('mobile', on);
+    if (!on) {
+      keys.KeyA = keys.KeyD = false;
+      stick.active = false;
+    }
+    if (overlayKind === 'start' || overlayKind === 'lose') showOverlay(overlayKind); // 換成對應的操作說明
+  }
+  setMobileMode(
+    L.prefersTouchUI({
+      coarse: !!(coarseQuery && coarseQuery.matches),
+      fine: !!(fineQuery && fineQuery.matches),
+      maxTouchPoints: navigator.maxTouchPoints || 0,
+    })
+  );
+  window.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'touch') setMobileMode(true);
+    else if (e.pointerType === 'mouse' && !(coarseQuery && coarseQuery.matches)) setMobileMode(false);
+  }, true);
+  window.addEventListener('keydown', () => {
+    if (!(coarseQuery && coarseQuery.matches)) setMobileMode(false);
+  }, true);
 
   // ---------------- 主迴圈 ----------------
   let last = 0;
@@ -1140,6 +1327,8 @@
     get cakes() { return cakes; },
     get lasers() { return lasers; },
     get heatZones() { return heatZones; },
+    get mobile() { return mobileMode; },
+    get stick() { return stick; },
   };
 
   overlay.innerHTML = '<h2>載入中……</h2>';

@@ -82,6 +82,9 @@
     HOMING_TURN_RATE: 0.7,           // 每秒最多轉幾弧度(舊版 1.8,幾乎躲不掉)
     HOMING_TRACK_TIME: 1.8,          // 只追前 1.8 秒,之後直線飛
 
+    // 手機版搖桿
+    STICK_DEADZONE: 0.25,
+
     // 光照(SPEC §2):只要還有太陽,最暗只到深黃昏
     MAX_DARKNESS: 0.55,
   };
@@ -252,6 +255,25 @@
     return null;
   }
 
+  /**
+   * 手機版瞄準搖桿:手指離中心 (dx, dy),搖桿半徑 radius。
+   * 推超過 deadzone(比例)才算在瞄準 → 會自動射箭;回傳方向角度和推的力道 0~1。
+   */
+  function stickVector(dx, dy, radius, deadzone) {
+    deadzone = deadzone === undefined ? CONFIG.STICK_DEADZONE : deadzone;
+    const mag = Math.min(1, Math.hypot(dx, dy) / radius);
+    return { angle: Math.atan2(dy, dx), mag, active: mag > deadzone };
+  }
+
+  /**
+   * 要不要用手機介面:主要輸入是觸控(pointer: coarse),或有觸控點但沒有滑鼠這類精準指標。
+   * 觸控筆電(有觸控也有滑鼠)預設用電腦介面,手指一碰螢幕才切成手機介面(在 game.js 處理)。
+   */
+  function prefersTouchUI(env) {
+    if (env.coarse) return true;
+    return env.maxTouchPoints > 0 && !env.fine;
+  }
+
   /** 圓形(彈幕)跟矩形(倉鼠)的碰撞。 */
   function circleRectHit(cx, cy, r, left, top, right, bottom) {
     const nx = Math.max(left, Math.min(cx, right));
@@ -281,6 +303,8 @@
     arrowVolley,
     toCanvasPoint,
     arrowHitSun,
+    stickVector,
+    prefersTouchUI,
     circleRectHit,
   };
 

@@ -2,7 +2,7 @@
 <html lang="zh-Hant">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>后羿射日 — 中秋平台射擊</title>
   <link rel="stylesheet" href="src/style.css" />
 </head>
@@ -10,8 +10,26 @@
   <h1>🏹 后羿射日 <span class="ver">v3</span></h1>
   <div id="gameWrap">
     <canvas id="game" width="900" height="600"></canvas>
+    <!-- 手機觸控介面:只有在手機模式(body.mobile)才會顯示 -->
+    <div id="touchControls">
+      <div id="dpad">
+        <button class="tbtn" data-btn="jump" style="grid-area: up" aria-label="跳">▲</button>
+        <button class="tbtn" data-btn="left" style="grid-area: left" aria-label="左">◀</button>
+        <button class="tbtn" data-btn="right" style="grid-area: right" aria-label="右">▶</button>
+        <button class="tbtn" data-btn="drop" style="grid-area: down" aria-label="往下跳">▼</button>
+      </div>
+      <div id="attackPad">
+        <div class="skillCol">
+          <button class="tbtn skill small" data-btn="dash" aria-label="衝刺">衝<em class="cd"></em></button>
+          <button class="tbtn skill" data-btn="slash" aria-label="兔劍">🐰<em class="cd"></em></button>
+        </div>
+        <div id="aimStick" aria-label="瞄準搖桿"><div id="aimKnob"></div></div>
+      </div>
+      <button id="fsBtn" class="tbtn small" aria-label="全螢幕">⛶</button>
+    </div>
     <div id="overlay"></div>
   </div>
+  <p id="rotateHint">📱 把手機轉成橫向會比較好玩</p>
   <div id="keybar" aria-label="操作按鍵">
     <div class="kb-item" data-act="move"><kbd>A</kbd><kbd>D</kbd><span>移動</span></div>
     <div class="kb-item" data-act="jump"><kbd>W</kbd><span>跳</span></div>

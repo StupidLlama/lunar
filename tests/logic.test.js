@@ -208,3 +208,21 @@ test('v3 SPEC §5:彈幕變少(普通攻擊間隔拉長、扇形機率降低)', 
   assert.ok(C.SPECIAL_INTERVAL[0] >= 12);
   assert.ok(C.LAST_STAND_SHOTS < 16);
 });
+
+// ---------------- 手機版 ----------------
+
+test('手機版:搖桿推超過死區才開始瞄準射箭,方向正確', () => {
+  const idle = L.stickVector(5, 0, 60);
+  assert.equal(idle.active, false);
+  const up = L.stickVector(0, -50, 60);
+  assert.equal(up.active, true);
+  assert.ok(Math.abs(up.angle + Math.PI / 2) < 1e-9); // 往上推 = 朝上射
+  assert.equal(L.stickVector(0, -500, 60).mag, 1); // 推出框外也只算 1
+});
+
+test('手機版:依裝置決定要不要用觸控介面', () => {
+  assert.equal(L.prefersTouchUI({ coarse: true, fine: false, maxTouchPoints: 5 }), true); // 手機
+  assert.equal(L.prefersTouchUI({ coarse: false, fine: true, maxTouchPoints: 0 }), false); // 一般電腦
+  assert.equal(L.prefersTouchUI({ coarse: false, fine: true, maxTouchPoints: 10 }), false); // 觸控筆電:先用電腦介面
+  assert.equal(L.prefersTouchUI({ coarse: false, fine: false, maxTouchPoints: 5 }), true);
+});
