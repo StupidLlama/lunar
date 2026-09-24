@@ -18,12 +18,13 @@
         <button class="tbtn" data-btn="right" style="grid-area: right" aria-label="右">▶</button>
         <button class="tbtn" data-btn="drop" style="grid-area: down" aria-label="往下跳">▼</button>
       </div>
-      <div id="attackPad">
-        <div class="skillCol">
-          <button class="tbtn skill small" data-btn="dash" aria-label="衝刺">衝<em class="cd"></em></button>
-          <button class="tbtn skill" data-btn="slash" aria-label="兔劍">🐰<em class="cd"></em></button>
-        </div>
-        <div id="aimStick" aria-label="瞄準搖桿"><div id="aimKnob"></div></div>
+      <div id="aimZone" aria-label="瞄準區:按住拖曳瞄準射擊">
+        <div id="aimHint"><span>按住拖曳<br />瞄準射擊</span></div>
+      </div>
+      <div id="aimStick"><div id="aimKnob"></div></div>
+      <div id="skillPad">
+        <button class="tbtn skill small" data-btn="dash" aria-label="衝刺">衝<em class="cd"></em></button>
+        <button class="tbtn skill" data-btn="slash" aria-label="兔劍">🐰<em class="cd"></em></button>
       </div>
       <button id="fsBtn" class="tbtn small" aria-label="全螢幕">⛶</button>
     </div>

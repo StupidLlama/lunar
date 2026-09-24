@@ -226,3 +226,19 @@ test('手機版:依裝置決定要不要用觸控介面', () => {
   assert.equal(L.prefersTouchUI({ coarse: false, fine: true, maxTouchPoints: 10 }), false); // 觸控筆電:先用電腦介面
   assert.equal(L.prefersTouchUI({ coarse: false, fine: false, maxTouchPoints: 5 }), true);
 });
+
+test('手機版:瞄準輔助會吸附到方向附近的太陽', () => {
+  const suns = [
+    { x: 100, y: -100, alive: true, id: 'a' },  // 右上 45°
+    { x: -100, y: -100, alive: true, id: 'b' }, // 左上
+  ];
+  const up45 = -Math.PI / 4;
+  const near = L.aimAssist(0, 0, up45 + 0.1, suns); // 差 0.1 弧度 ≈ 6° → 吸附
+  assert.equal(near.target.id, 'a');
+  assert.ok(Math.abs(near.angle - up45) < 1e-9);
+  const far = L.aimAssist(0, 0, -Math.PI / 2, suns); // 正上方,兩顆都差 45° → 不吸附
+  assert.equal(far.target, null);
+  assert.equal(far.angle, -Math.PI / 2);
+  const dead = L.aimAssist(0, 0, up45, [{ x: 100, y: -100, alive: false }]);
+  assert.equal(dead.target, null); // 死掉的太陽不吸
+});

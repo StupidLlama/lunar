@@ -155,27 +155,48 @@ body.mobile #touchControls {
   grid-template-areas: ". up ." "left . right" ". down .";
   gap: 2px;
 }
-#attackPad {
-  position: absolute;
-  right: max(2.5%, env(safe-area-inset-right));
-  bottom: 4%;
-  display: flex;
-  align-items: flex-end;
-  gap: 10px;
-}
-.skillCol { display: flex; flex-direction: column; align-items: center; gap: 8px; }
-#aimStick {
+/* 瞄準區:預設右半邊(左手模式在左半邊),按下去的地方就是搖桿中心 */
+#aimZone {
   pointer-events: auto;
   touch-action: none;
-  position: relative;
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 50%;
+  height: 80%;
+}
+#aimHint {
+  position: absolute;
+  left: 50%;
+  top: 58%;
+  transform: translate(-50%, -50%);
+  width: calc(var(--btn) * 2);
+  height: calc(var(--btn) * 2);
+  border-radius: 50%;
+  border: 2px dashed rgba(255, 255, 255, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-size: 12px;
+  line-height: 1.4;
+  color: rgba(255, 255, 255, 0.7);
+  pointer-events: none;
+}
+#aimZone.touching #aimHint { opacity: 0; }
+#aimStick {
+  display: none;
+  position: absolute;
   width: calc(var(--btn) * 2.1);
   height: calc(var(--btn) * 2.1);
+  transform: translate(-50%, -50%);
   border-radius: 50%;
-  border: 2px dashed rgba(255, 255, 255, 0.5);
+  border: 2px solid rgba(255, 255, 255, 0.55);
   background: rgba(15, 20, 45, 0.35);
+  pointer-events: none;
 }
-#aimStick::after { content: '瞄準'; position: absolute; left: 50%; top: -1.4em; transform: translateX(-50%); font-size: 11px; opacity: 0.7; }
-#aimStick.active { border-style: solid; border-color: #ffb84d; }
+#aimStick.show { display: block; }
+#aimStick.active { border-color: #ffb84d; }
 #aimKnob {
   position: absolute;
   left: 50%;
@@ -183,11 +204,40 @@ body.mobile #touchControls {
   width: 44%;
   height: 44%;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.75);
+  background: rgba(255, 255, 255, 0.8);
   box-shadow: 0 0 10px rgba(255, 184, 77, 0.6);
   transform: translate(-50%, -50%);
-  pointer-events: none;
 }
+#skillPad {
+  position: absolute;
+  right: max(2.5%, env(safe-area-inset-right));
+  bottom: 4%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  z-index: 2; /* 蓋在瞄準區上面,按技能鈕不會變成瞄準 */
+}
+
+/* 左手模式:十字鍵搬到右下,瞄準區和技能鈕搬到左邊 */
+body.lefty #dpad { left: auto; right: max(2%, env(safe-area-inset-right)); }
+body.lefty #aimZone { right: auto; left: 0; }
+body.lefty #skillPad { right: auto; left: max(2.5%, env(safe-area-inset-left)); }
+
+.toggles { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin-top: 6px; }
+button.toggle {
+  margin: 0;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: bold;
+  border-radius: 20px;
+  border: 1px solid #5a648c;
+  background: #1c2340;
+  color: #cfd8dc;
+}
+button.toggle:hover { background: #26305a; }
+button.toggle.on { background: #ffb84d; border-color: #ffb84d; color: #2b1600; }
+
 #fsBtn { position: absolute; top: 2%; right: max(1.5%, env(safe-area-inset-right)); font-size: 18px; }
 
 @media (orientation: portrait) {

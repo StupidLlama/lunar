@@ -83,7 +83,8 @@
     HOMING_TRACK_TIME: 1.8,          // 只追前 1.8 秒,之後直線飛
 
     // 手機版搖桿
-    STICK_DEADZONE: 0.25,
+    STICK_DEADZONE: 0.2,
+    AIM_ASSIST_ANGLE: 0.21, // 瞄準輔助:搖桿方向跟某顆太陽差 12° 以內就自動對準
 
     // 光照(SPEC §2):只要還有太陽,最暗只到深黃昏
     MAX_DARKNESS: 0.55,
@@ -266,6 +267,28 @@
   }
 
   /**
+   * 瞄準輔助:從 (ox, oy) 往 angle 方向看,找「角度差最小、而且在 maxDiff 以內」的存活太陽,
+   * 找到就把角度修正成正對那顆太陽;找不到就維持原本方向。
+   */
+  function aimAssist(ox, oy, angle, suns, maxDiff) {
+    maxDiff = maxDiff === undefined ? CONFIG.AIM_ASSIST_ANGLE : maxDiff;
+    let best = null;
+    let bestDiff = Infinity;
+    for (const s of suns) {
+      if (!s.alive) continue;
+      const a = Math.atan2(s.y - oy, s.x - ox);
+      let d = a - angle;
+      while (d > Math.PI) d -= 2 * Math.PI;
+      while (d < -Math.PI) d += 2 * Math.PI;
+      if (Math.abs(d) <= maxDiff && Math.abs(d) < bestDiff) {
+        bestDiff = Math.abs(d);
+        best = { angle: a, target: s };
+      }
+    }
+    return best || { angle, target: null };
+  }
+
+  /**
    * 要不要用手機介面:主要輸入是觸控(pointer: coarse),或有觸控點但沒有滑鼠這類精準指標。
    * 觸控筆電(有觸控也有滑鼠)預設用電腦介面,手指一碰螢幕才切成手機介面(在 game.js 處理)。
    */
@@ -304,6 +327,7 @@
     toCanvasPoint,
     arrowHitSun,
     stickVector,
+    aimAssist,
     prefersTouchUI,
     circleRectHit,
   };

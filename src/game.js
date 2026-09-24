@@ -47,8 +47,28 @@
   let lastSpecialAt = -99; // 全場上一次特殊技能的時間(全域冷卻用)
   let laserPending = false; // 雷射排隊中:其他特殊技能先讓路,不然雷射會一直搶不到全域冷卻
   const mouse = { x: W / 2, y: 200, down: false };
-  const stick = { active: false, angle: -Math.PI / 2, pointerId: null }; // 手機版瞄準搖桿
+  const stick = { active: false, angle: -Math.PI / 2, pointerId: null, cx: 0, cy: 0, target: null }; // 手機版浮動瞄準搖桿
   let mobileMode = false;
+
+  // 手機版設定(記在瀏覽器裡,下次打開還在):左手模式、瞄準輔助
+  const SETTINGS_KEY = 'houyi-mobile-settings';
+  const settings = { lefty: false, assist: true };
+  try {
+    Object.assign(settings, JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}'));
+  } catch (err) {
+    /* 私密瀏覽或被封鎖就用預設值 */
+  }
+  function saveSettings() {
+    try {
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+    } catch (err) {
+      /* 存不了也沒關係 */
+    }
+  }
+  function applySettings() {
+    document.body.classList.toggle('lefty', !!settings.lefty);
+  }
+  applySettings();
   const STARS = Array.from({ length: 80 }, () => ({
     x: Math.random() * W,
     y: Math.random() * 400,
@@ -190,8 +210,18 @@
   // 瞄準點:手機用搖桿方向,電腦用滑鼠游標
   function aimTarget() {
     if (stick.active) {
-      return { x: player.x + Math.cos(stick.angle) * 400, y: player.y - 32 + Math.sin(stick.angle) * 400 };
+      const ox = player.x;
+      const oy = player.y - 32;
+      let angle = stick.angle;
+      stick.target = null;
+      if (settings.assist) {
+        const a = L.aimAssist(ox, oy, angle, suns);
+        angle = a.angle;
+        stick.target = a.target;
+      }
+      return { x: ox + Math.cos(angle) * 400, y: oy + Math.sin(angle) * 400 };
     }
+    stick.target = null;
     return { x: mouse.x, y: mouse.y };
   }
 
@@ -850,6 +880,50 @@
     }
   }
 
+  // 手機版瞄準線:手指會蓋住搖桿,所以在遊戲畫面上畫出「箭會往哪飛」
+  function drawAimGuide() {
+    if (!mobileMode || !stick.active || state !== 'playing') return;
+    const p = player;
+    const bx = p.x + Math.cos(p.aim) * 30;
+    const by = p.y - 32 + Math.sin(p.aim) * 30;
+    const len = 190;
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.75)';
+    ctx.lineWidth = 3;
+    ctx.setLineDash([10, 8]);
+    ctx.lineDashOffset = -time * 40;
+    ctx.beginPath();
+    ctx.moveTo(bx, by);
+    ctx.lineTo(bx + Math.cos(p.aim) * len, by + Math.sin(p.aim) * len);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    const ex = bx + Math.cos(p.aim) * len;
+    const ey = by + Math.sin(p.aim) * len;
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+    ctx.beginPath();
+    ctx.moveTo(ex + Math.cos(p.aim) * 12, ey + Math.sin(p.aim) * 12);
+    ctx.lineTo(ex + Math.cos(p.aim + 2.5) * 10, ey + Math.sin(p.aim + 2.5) * 10);
+    ctx.lineTo(ex + Math.cos(p.aim - 2.5) * 10, ey + Math.sin(p.aim - 2.5) * 10);
+    ctx.fill();
+    // 瞄準輔助鎖定中的太陽:外面轉一圈準星
+    const t = stick.target;
+    if (t && t.alive) {
+      // 用藍白色準星,跟橘黃色的太陽對比比較明顯
+      ctx.setLineDash([14, 9]);
+      ctx.lineDashOffset = time * 30;
+      ctx.lineWidth = 6;
+      ctx.strokeStyle = 'rgba(10, 20, 50, 0.6)';
+      ctx.beginPath();
+      ctx.arc(t.x, t.y, 46, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = 'rgba(128, 222, 255, 1)';
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    ctx.restore();
+  }
+
   function drawSlash() {
     if (!slashFx) return;
     const p = player;
@@ -1099,6 +1173,7 @@
     drawLasers();
     drawShots();
     drawPlayer();
+    drawAimGuide();
     drawSlash();
     drawBubble();
     drawFx();
@@ -1109,15 +1184,27 @@
   }
 
   // ---------------- 覆蓋畫面(開始 / 勝利 / 失敗) ----------------
-  const TOUCH_CONTROLS_HTML = `
+  function touchControlsHtml() {
+    const moveSide = settings.lefty ? '右下' : '左下';
+    const aimSide = settings.lefty ? '左半邊' : '右半邊';
+    return `
     <div class="keyguide">
-      <div class="kg-row"><span class="keys"><kbd>◀</kbd><kbd>▶</kbd></span><span>左下:左右移動</span></div>
-      <div class="kg-row"><span class="keys"><kbd>▲</kbd><kbd>▼</kbd></span><span>左下:跳 / 從平台往下跳</span></div>
-      <div class="kg-row"><span class="keys"><kbd class="wide">搖桿</kbd></span><span>右下:推哪個方向就朝哪裡自動射箭</span></div>
+      <div class="kg-row"><span class="keys"><kbd>◀</kbd><kbd>▶</kbd></span><span>${moveSide}:左右移動</span></div>
+      <div class="kg-row"><span class="keys"><kbd>▲</kbd><kbd>▼</kbd></span><span>${moveSide}:跳 / 從平台往下跳</span></div>
+      <div class="kg-row"><span class="keys"><kbd class="wide">按住拖曳</kbd></span><span>${aimSide}任何地方:搖桿出現在手指下,拖向哪就朝哪射</span></div>
       <div class="kg-row"><span class="keys"><kbd>🐰</kbd><kbd>衝</kbd></span><span>兔劍(清火球)/ 月光衝刺</span></div>
     </div>
-    <p class="small">建議手機橫放,按右上角 ⛶ 進入全螢幕。撿月餅拿 buff。</p>`;
-  const controlsHtml = () => (mobileMode ? TOUCH_CONTROLS_HTML : CONTROLS_HTML);
+    <p class="small">建議手機橫放,按 ⛶ 進入全螢幕。撿月餅拿 buff。</p>`;
+  }
+  function settingsHtml() {
+    if (!mobileMode) return '';
+    const onOff = (v) => (v ? '開' : '關');
+    return `<div class="toggles">
+      <button class="toggle ${settings.lefty ? 'on' : ''}" data-toggle="lefty">🤚 左手模式:${onOff(settings.lefty)}</button>
+      <button class="toggle ${settings.assist ? 'on' : ''}" data-toggle="assist">🎯 瞄準輔助:${onOff(settings.assist)}</button>
+    </div>`;
+  }
+  const controlsHtml = () => (mobileMode ? touchControlsHtml() : CONTROLS_HTML);
 
   const CONTROLS_HTML = `
     <div class="keyguide">
@@ -1135,7 +1222,7 @@
     overlayKind = kind;
     overlay.classList.remove('hidden');
     if (kind === 'start') {
-      overlay.innerHTML = `<h2>后羿射日</h2><p>九個太陽,打到只剩最後一個。</p>${controlsHtml()}<button id="actionBtn">開始遊戲</button>`;
+      overlay.innerHTML = `<h2>后羿射日</h2><p>九個太陽,打到只剩最後一個。</p>${controlsHtml()}${settingsHtml()}<button id="actionBtn">開始遊戲</button>`;
     } else if (kind === 'win') {
       overlay.innerHTML = `<h2>通關!</h2><p>后羿射下了八顆太陽,只留下一顆。</p><p>太陽下山、月亮升起,嫦娥奔月的故事要開始了。</p><button id="actionBtn">再玩一次</button>`;
     } else if (kind === 'badend') {
@@ -1143,6 +1230,15 @@
     } else {
       overlay.innerHTML = `<h2>倉鼠被曬乾了……</h2><p>還剩 ${aliveSuns().length} 顆太陽。再試一次?</p>${controlsHtml()}<button id="actionBtn">再試一次</button>`;
     }
+    overlay.querySelectorAll('[data-toggle]').forEach((el) => {
+      el.addEventListener('click', () => {
+        const key = el.dataset.toggle;
+        settings[key] = !settings[key];
+        saveSettings();
+        applySettings();
+        showOverlay(kind); // 重畫說明文字(左右會對調)
+      });
+    });
     const btn = document.getElementById('actionBtn');
     btn.addEventListener('click', () => {
       overlay.classList.add('hidden');
@@ -1223,13 +1319,16 @@
     btn.addEventListener('contextmenu', (e) => e.preventDefault());
   });
 
+  // 浮動瞄準搖桿:在瞄準區(預設右半邊,左手模式在左半邊)任何地方按下去,搖桿就以那一點為中心出現;
+  // 手指拖出瞄準區也繼續有效,放開就消失
+  const wrapEl = document.getElementById('gameWrap');
+  const zoneEl = document.getElementById('aimZone');
   const stickEl = document.getElementById('aimStick');
   const knobEl = document.getElementById('aimKnob');
   function moveStick(e) {
-    const r = stickEl.getBoundingClientRect();
-    const radius = r.width / 2;
-    let dx = e.clientX - (r.left + radius);
-    let dy = e.clientY - (r.top + radius);
+    const radius = stickEl.offsetWidth / 2 || 50;
+    let dx = e.clientX - stick.cx;
+    let dy = e.clientY - stick.cy;
     const v = L.stickVector(dx, dy, radius);
     stick.active = v.active;
     stick.angle = v.angle;
@@ -1245,22 +1344,33 @@
     if (e.pointerId !== stick.pointerId) return;
     stick.pointerId = null;
     stick.active = false;
+    stick.target = null;
     knobEl.style.transform = 'translate(-50%, -50%)';
-    stickEl.classList.remove('active');
+    stickEl.classList.remove('show', 'active');
+    zoneEl.classList.remove('touching');
   }
-  if (stickEl) {
-    stickEl.addEventListener('pointerdown', (e) => {
+  if (zoneEl && stickEl) {
+    zoneEl.addEventListener('pointerdown', (e) => {
+      if (stick.pointerId !== null) return; // 已經有一隻手指在瞄準了
       e.preventDefault();
       e.stopPropagation();
       stick.pointerId = e.pointerId;
-      trySetCapture(stickEl, e.pointerId);
+      stick.cx = e.clientX;
+      stick.cy = e.clientY;
+      trySetCapture(zoneEl, e.pointerId);
+      const wr = wrapEl.getBoundingClientRect();
+      stickEl.style.left = e.clientX - wr.left + 'px';
+      stickEl.style.top = e.clientY - wr.top + 'px';
+      stickEl.classList.add('show');
+      zoneEl.classList.add('touching');
       moveStick(e);
     });
-    stickEl.addEventListener('pointermove', (e) => {
+    zoneEl.addEventListener('pointermove', (e) => {
       if (e.pointerId === stick.pointerId) moveStick(e);
     });
-    stickEl.addEventListener('pointerup', endStick);
-    stickEl.addEventListener('pointercancel', endStick);
+    zoneEl.addEventListener('pointerup', endStick);
+    zoneEl.addEventListener('pointercancel', endStick);
+    zoneEl.addEventListener('contextmenu', (e) => e.preventDefault());
   }
 
   const fsBtn = document.getElementById('fsBtn');
@@ -1329,6 +1439,7 @@
     get heatZones() { return heatZones; },
     get mobile() { return mobileMode; },
     get stick() { return stick; },
+    get settings() { return settings; },
   };
 
   overlay.innerHTML = '<h2>載入中……</h2>';
